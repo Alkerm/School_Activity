@@ -43,8 +43,35 @@ active_predictions = {}
 FACE_TARGET_SIZE = int(os.getenv('FACE_TARGET_SIZE', '1024'))
 FACE_CROP_SCALE = float(os.getenv('FACE_CROP_SCALE', '2.4'))
 _face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-DB_PATH = os.getenv('DB_PATH', 'app.db')
 DEFAULT_TRIALS = int(os.getenv('DEFAULT_TRIALS', '0'))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_db_path():
+    """
+    Resolve the database path to a stable absolute location.
+    - Absolute DB_PATH values are used as-is.
+    - Relative DB_PATH values are resolved from this file's directory.
+    - On Render, if RENDER_DISK_PATH is configured and DB_PATH is just a filename,
+      place the sqlite file on the mounted disk for persistence.
+    """
+    raw_db_path = (os.getenv('DB_PATH') or 'app.db').strip()
+    if os.path.isabs(raw_db_path):
+        resolved = raw_db_path
+    else:
+        render_disk = (os.getenv('RENDER_DISK_PATH') or '').strip()
+        if render_disk and os.path.basename(raw_db_path) == raw_db_path:
+            resolved = os.path.join(render_disk, raw_db_path)
+        else:
+            resolved = os.path.join(BASE_DIR, raw_db_path)
+
+    db_dir = os.path.dirname(resolved)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    return resolved
+
+
+DB_PATH = resolve_db_path()
 
 
 def get_db():
@@ -71,8 +98,26 @@ def init_db():
         '''
     )
     columns = [row['name'] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+
+    # Backward-compatible migrations for older sqlite schemas.
     if 'password_hash' not in columns:
         conn.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
+    if 'is_verified' not in columns:
+        conn.execute('ALTER TABLE users ADD COLUMN is_verified INTEGER NOT NULL DEFAULT 0')
+    if 'total_uses' not in columns:
+        conn.execute(f'ALTER TABLE users ADD COLUMN total_uses INTEGER NOT NULL DEFAULT {DEFAULT_TRIALS}')
+    if 'used_uses' not in columns:
+        conn.execute('ALTER TABLE users ADD COLUMN used_uses INTEGER NOT NULL DEFAULT 0')
+    if 'created_at' not in columns:
+        conn.execute('ALTER TABLE users ADD COLUMN created_at TEXT')
+    if 'last_login_at' not in columns:
+        conn.execute('ALTER TABLE users ADD COLUMN last_login_at TEXT')
+
+    now_iso = datetime.utcnow().isoformat()
+    conn.execute('UPDATE users SET is_verified = 1 WHERE is_verified IS NULL')
+    conn.execute('UPDATE users SET total_uses = ? WHERE total_uses IS NULL', (DEFAULT_TRIALS,))
+    conn.execute('UPDATE users SET used_uses = 0 WHERE used_uses IS NULL')
+    conn.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ""', (now_iso,))
     conn.commit()
     conn.close()
 

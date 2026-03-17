@@ -4,6 +4,7 @@ let capturedPhoto = null;
 let selectedCharacter = null;
 let videoStream = null;
 let currentUser = null;
+let shouldFlipCamera = true;
 
 // DOM elements
 const authScreen = document.getElementById('auth-screen');
@@ -310,6 +311,7 @@ async function initCamera() {
         console.log('Camera stream obtained:', stream.id);
         videoStream = stream;
         cameraFeed.srcObject = stream;
+        updateCameraFlipUI();
 
         // Explicitly set muted again by code
         cameraFeed.muted = true;
@@ -365,6 +367,14 @@ function setupEventListeners() {
     // File upload
     uploadBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', handleFileUpload);
+
+    updateCameraFlipUI();
+}
+
+function updateCameraFlipUI() {
+    if (!cameraFeed) return;
+
+    cameraFeed.classList.toggle('flipped', shouldFlipCamera);
 }
 
 // Handle file upload fallback
