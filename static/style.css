@@ -5,11 +5,11 @@
 }
 
 :root {
-    --primary-color: #1A5D3A;
-    /* Saudi Green */
-    --primary-dark: #0F3d25;
-    --secondary-color: #D4AF37;
-    /* Gold */
+    --primary-color: #4F46E5;
+    /* Indigo */
+    --primary-dark: #3730A3;
+    --secondary-color: #EC4899;
+    /* Pink */
     --success-color: #10b981;
     --bg-gradient: linear-gradient(135deg, #f3e7e9 0%, #e3eeff 100%);
     /* Light airy background */

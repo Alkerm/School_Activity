@@ -3,6 +3,9 @@ from flask_cors import CORS
 import os
 import sys
 import base64
+import binascii
+import cv2
+import numpy as np
 from dotenv import load_dotenv
 
 # Import our helper modules
@@ -26,6 +29,95 @@ CORS(app)
 
 # Store active predictions in memory (for polling)
 active_predictions = {}
+FACE_TARGET_SIZE = int(os.getenv('FACE_TARGET_SIZE', '1024'))
+FACE_CROP_SCALE = float(os.getenv('FACE_CROP_SCALE', '2.4'))
+_face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+
+def decode_base64_image(image_input):
+    """Decode a data URL or raw base64 image string into bytes."""
+    if not isinstance(image_input, str):
+        raise ValueError('child_photo must be a base64 string')
+
+    payload = image_input.strip()
+    if not payload:
+        raise ValueError('child_photo is empty')
+
+    if payload.startswith('data:'):
+        if ',' not in payload:
+            raise ValueError('child_photo data URL is malformed')
+        payload = payload.split(',', 1)[1].strip()
+
+    if not payload:
+        raise ValueError('child_photo base64 content is empty')
+
+    # Accept inputs missing trailing padding to handle browser/client variations.
+    payload += '=' * (-len(payload) % 4)
+
+    try:
+        return base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError('Invalid child_photo base64 payload')
+
+
+def preprocess_child_photo(image_bytes):
+    """
+    Improve face-swap input quality by centering on face and resizing to fixed square.
+    Falls back to centered square crop if no face is detected.
+    """
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError('Unable to decode child_photo image bytes')
+
+    height, width = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = _face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(50, 50)
+    )
+
+    if len(faces) > 0:
+        # Use the largest detected face for reliable framing.
+        x, y, w, h = max(faces, key=lambda box: box[2] * box[3])
+        center_x = x + w // 2
+        center_y = y + h // 2
+        crop_size = int(max(w, h) * FACE_CROP_SCALE)
+    else:
+        center_x = width // 2
+        center_y = height // 2
+        crop_size = int(min(width, height))
+
+    # Keep crop within image bounds.
+    crop_size = max(256, min(crop_size, width, height))
+    half = crop_size // 2
+    left = max(0, center_x - half)
+    top = max(0, center_y - half)
+    right = left + crop_size
+    bottom = top + crop_size
+
+    if right > width:
+        right = width
+        left = width - crop_size
+    if bottom > height:
+        bottom = height
+        top = height - crop_size
+
+    cropped = image[top:bottom, left:right]
+    if cropped.size == 0:
+        raise ValueError('Failed to crop child photo for preprocessing')
+
+    interpolation = cv2.INTER_CUBIC if crop_size < FACE_TARGET_SIZE else cv2.INTER_AREA
+    final_image = cv2.resize(cropped, (FACE_TARGET_SIZE, FACE_TARGET_SIZE), interpolation=interpolation)
+
+    ok, encoded = cv2.imencode('.jpg', final_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+    if not ok:
+        raise ValueError('Failed to encode preprocessed child photo')
+
+    used_face_crop = len(faces) > 0
+    return encoded.tobytes(), used_face_crop
 
 
 @app.before_request
@@ -74,33 +166,42 @@ def swap_face():
     """
     Start face swap process:
     1. Upload child photo to Cloudinary
-    2. Generate face mask (for compatibility, not used by current model)
-    3. Upload mask to Cloudinary
-    4. Start Replicate prediction with lucataco/faceswap
-    5. Return prediction ID for polling
+    2. Start Replicate prediction using selected template image
+    3. Return prediction ID for polling
     """
     print("=" * 60, flush=True)
     print("FACE SWAP REQUEST RECEIVED", flush=True)
     print("=" * 60, flush=True)
     
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         
         if not data or 'child_photo' not in data or 'character' not in data:
             print("[ERROR] Missing required fields", flush=True)
             return jsonify({'error': 'Missing required fields: child_photo and character'}), 400
         
-        # Decode child photo from base64
-        child_photo_b64 = data['child_photo'].split(',')[1]  # Remove data:image/png;base64,
-        child_image_bytes = base64.b64decode(child_photo_b64)
+        # Decode child photo from base64 (data URL or raw base64)
+        try:
+            child_image_bytes = decode_base64_image(data['child_photo'])
+        except ValueError as decode_error:
+            return jsonify({'error': str(decode_error)}), 400
+
         character = data['character']
         
         print(f"[INFO] Character: {character}", flush=True)
-        print(f"[INFO] Image size: {len(child_image_bytes)} bytes", flush=True)
+        print(f"[INFO] Original image size: {len(child_image_bytes)} bytes", flush=True)
+
+        # Preprocess photo for better face-swap quality
+        processed_image_bytes, used_face_crop = preprocess_child_photo(child_image_bytes)
+        print(
+            f"[INFO] Preprocessed image size: {len(processed_image_bytes)} bytes "
+            f"(face_crop={'yes' if used_face_crop else 'no'})",
+            flush=True
+        )
         
         # Step 1: Upload child photo to Cloudinary
         print("[STEP 1] Uploading child photo to Cloudinary...", flush=True)
-        upload_result = cloudinary_helper.upload_temp_image(child_image_bytes)
+        upload_result = cloudinary_helper.upload_temp_image(processed_image_bytes)
         
         if not upload_result:
             return jsonify({'error': 'Failed to upload image to cloud storage'}), 500
@@ -110,47 +211,16 @@ def swap_face():
         
         print(f"[SUCCESS] Child image uploaded: {child_image_url[:50]}...", flush=True)
         
-        # Step 2: Generate face mask
-        print("[STEP 2] Generating face mask...", flush=True)
-        from face_mask_generator import get_mask_generator
-        mask_bytes = None
-        try:
-            mask_generator = get_mask_generator()
-            mask_bytes = mask_generator.generate_mask(child_image_bytes)
-            if not mask_bytes:
-                print("[WARNING] Face mask generation failed (no face detected). Proceeding without mask...", flush=True)
-        except Exception as mask_err:
-            print(f"[WARNING] Mask generation error: {mask_err}. Proceeding without mask...", flush=True)
-        
-        # Step 3: Upload mask to Cloudinary (if generated)
-        mask_image_url = ""
-        mask_public_id = ""
-        
-        if mask_bytes:
-            print("[STEP 3] Uploading mask to Cloudinary...", flush=True)
-            mask_upload_result = cloudinary_helper.upload_temp_image(mask_bytes)
-            
-            if mask_upload_result:
-                mask_image_url = mask_upload_result['url']
-                mask_public_id = mask_upload_result['public_id']
-                print(f"[SUCCESS] Mask uploaded: {mask_image_url[:50]}...", flush=True)
-            else:
-                print("[WARNING] Mask upload failed. Proceeding without mask...", flush=True)
-        else:
-            print("[INFO] Skipping mask upload (no mask available)", flush=True)
-        
-        # Step 4: Start Replicate prediction with SDXL IP-Adapter FaceID
-        print("[STEP 4] Starting AI face blending...", flush=True)
+        # Step 2: Start Replicate prediction with template target image
+        print("[STEP 2] Starting AI face swap...", flush=True)
         prediction_info = replicate_helper.start_face_generation(
             child_image_url=child_image_url,
-            mask_image_url=mask_image_url,
             character=character
         )
         
         if not prediction_info:
             # Cleanup uploaded images
             cloudinary_helper.delete_temp_image(child_public_id)
-            cloudinary_helper.delete_temp_image(mask_public_id)
             return jsonify({'error': 'Failed to start AI processing'}), 500
         
         prediction_id = prediction_info['prediction_id']
@@ -158,7 +228,6 @@ def swap_face():
         # Store prediction info for cleanup later
         active_predictions[prediction_id] = {
             'child_cloudinary_id': child_public_id,
-            'mask_cloudinary_id': mask_public_id,
             'character': character,
             'status': 'processing'
         }
@@ -179,7 +248,7 @@ def swap_face():
         print(tb_str, flush=True)
         
         # Also write to error log file
-        with open('error_log.txt', 'a') as f:
+        with open('error_log.txt', 'a', encoding='utf-8') as f:
             from datetime import datetime
             f.write(f"\n{'='*50}\n")
             f.write(f"Time: {datetime.now()}\n")
@@ -226,17 +295,12 @@ def check_status(prediction_id):
             
             print(f"[SUCCESS] Result URL: {result_url}", flush=True)
             
-            # Cleanup Cloudinary images (both child and mask)
+            # Cleanup Cloudinary child image
             child_id = prediction_data.get('child_cloudinary_id')
-            mask_id = prediction_data.get('mask_cloudinary_id')
             
             if child_id:
                 print(f"[CLEANUP] Deleting child image...", flush=True)
                 cloudinary_helper.delete_temp_image(child_id)
-            
-            if mask_id:
-                print(f"[CLEANUP] Deleting mask image...", flush=True)
-                cloudinary_helper.delete_temp_image(mask_id)
             
             # Remove from active predictions
             del active_predictions[prediction_id]
@@ -252,13 +316,9 @@ def check_status(prediction_id):
             
             # Cleanup
             child_id = prediction_data.get('child_cloudinary_id')
-            mask_id = prediction_data.get('mask_cloudinary_id')
             
             if child_id:
                 cloudinary_helper.delete_temp_image(child_id)
-            
-            if mask_id:
-                cloudinary_helper.delete_temp_image(mask_id)
             
             del active_predictions[prediction_id]
             
@@ -376,13 +436,12 @@ def test_cloudinary():
 
 if __name__ == '__main__':
     print("\n" + "=" * 60)
-    print("SUPERHERO PHOTO BOOTH - IP-Adapter Face Inpaint")
+    print("DREAM JOB PHOTO BOOTH - yan-ops/face_swap")
     print("=" * 60)
     print("Using:")
     print("  - Cloudinary for temporary image storage")
-    print("  - OpenCV for face detection")
-    print("  - Replicate lucataco/ip_adapter-face-inpaint")
-    print("  - Face masking for structure preservation")
+    print("  - replicate: yan-ops/face_swap")
+    print("  - Seamless face replacement pipeline")
     print("=" * 60)
     print("Server starting at: http://localhost:5000")
     print("=" * 60 + "\n")

@@ -25,12 +25,157 @@ const resultImage = document.getElementById('result-image');
 
 const uploadBtn = document.getElementById('upload-btn');
 const fileInput = document.getElementById('file-input');
+const faceDetector = ('FaceDetector' in window)
+    ? new FaceDetector({ fastMode: true, maxDetectedFaces: 1 })
+    : null;
+
+const BURST_FRAME_COUNT = 3;
+const BURST_FRAME_DELAY_MS = 140;
 
 // Initialize camera on page load
 window.addEventListener('DOMContentLoaded', () => {
     initCamera();
     setupEventListeners();
 });
+
+function isValidImageDataUrl(value) {
+    return typeof value === 'string' && /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value);
+}
+
+async function parseJsonResponse(response) {
+    const responseText = await response.text();
+    if (!responseText) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(responseText);
+    } catch (parseError) {
+        throw new Error(`Server returned invalid JSON (HTTP ${response.status})`);
+    }
+}
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function computeImageQualityMetrics(imageData) {
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+
+    const gray = new Float32Array(width * height);
+    let brightnessSum = 0;
+
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+        const value = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        gray[p] = value;
+        brightnessSum += value;
+    }
+
+    const brightness = brightnessSum / gray.length;
+    let sharpnessSum = 0;
+    let count = 0;
+
+    for (let y = 1; y < height; y += 2) {
+        for (let x = 1; x < width; x += 2) {
+            const idx = y * width + x;
+            const dx = Math.abs(gray[idx] - gray[idx - 1]);
+            const dy = Math.abs(gray[idx] - gray[idx - width]);
+            sharpnessSum += dx + dy;
+            count++;
+        }
+    }
+
+    const sharpness = count > 0 ? sharpnessSum / count : 0;
+    return { brightness, sharpness };
+}
+
+async function detectFaceMetrics(canvas) {
+    if (!faceDetector) {
+        return { available: false, detected: false };
+    }
+
+    try {
+        const faces = await faceDetector.detect(canvas);
+        if (!faces || faces.length === 0) {
+            return { available: true, detected: false };
+        }
+
+        const box = faces[0].boundingBox;
+        const frameWidth = canvas.width;
+        const frameHeight = canvas.height;
+        const faceAreaRatio = (box.width * box.height) / (frameWidth * frameHeight);
+
+        const faceCenterX = box.x + box.width / 2;
+        const faceCenterY = box.y + box.height / 2;
+        const dx = Math.abs(faceCenterX - frameWidth / 2) / frameWidth;
+        const dy = Math.abs(faceCenterY - frameHeight / 2) / frameHeight;
+        const centerOffset = Math.sqrt(dx * dx + dy * dy);
+
+        return {
+            available: true,
+            detected: true,
+            faceAreaRatio,
+            centerOffset
+        };
+    } catch (error) {
+        console.warn('FaceDetector failed, continuing without face-gate:', error);
+        return { available: false, detected: false };
+    }
+}
+
+async function evaluateCanvasQuality(canvas) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const basic = computeImageQualityMetrics(imageData);
+    const face = await detectFaceMetrics(canvas);
+
+    const brightnessPenalty = Math.abs(basic.brightness - 128) / 128 * 18;
+    let score = basic.sharpness - brightnessPenalty;
+
+    if (face.available) {
+        if (!face.detected) {
+            score -= 30;
+        } else {
+            score += 14;
+            score -= face.centerOffset * 15;
+        }
+    }
+
+    return {
+        score,
+        brightness: basic.brightness,
+        sharpness: basic.sharpness,
+        face
+    };
+}
+
+function drawCurrentFrameToCanvas(canvas, video) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+}
+
+async function captureBestFrameFromBurst(video, frameCount = BURST_FRAME_COUNT) {
+    const canvas = photoCanvas;
+    const frames = [];
+
+    for (let i = 0; i < frameCount; i++) {
+        drawCurrentFrameToCanvas(canvas, video);
+        const metrics = await evaluateCanvasQuality(canvas);
+        const dataUrl = canvas.toDataURL('image/png');
+        frames.push({ dataUrl, metrics });
+
+        if (i < frameCount - 1) {
+            await wait(BURST_FRAME_DELAY_MS);
+        }
+    }
+
+    frames.sort((a, b) => b.metrics.score - a.metrics.score);
+    return frames[0];
+}
 
 // Initialize camera
 async function initCamera() {
@@ -128,31 +273,38 @@ function handleFileUpload(e) {
 }
 
 // Capture photo from video stream
-function capturePhoto() {
-    const canvas = photoCanvas;
+async function capturePhoto() {
     const video = cameraFeed;
 
-    // Set canvas dimensions to match video
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    // Draw current video frame to canvas
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Convert canvas to base64 (use PNG for maximum quality)
-    capturedPhoto = canvas.toDataURL('image/png');
-
-    // Show preview
-    capturedPreview.src = capturedPhoto;
-
-    // Stop camera stream
-    if (videoStream) {
-        videoStream.getTracks().forEach(track => track.stop());
+    if (!video.videoWidth || !video.videoHeight) {
+        alert('Camera is not ready yet. Please wait a second and try again.');
+        return;
     }
 
-    // Switch to character selection screen
-    switchScreen('character');
+    const originalLabel = captureBtn.innerHTML;
+    captureBtn.disabled = true;
+    captureBtn.innerHTML = '<span class="btn-icon">...</span> Capturing...';
+
+    try {
+        const bestFrame = await captureBestFrameFromBurst(video);
+
+        capturedPhoto = bestFrame.dataUrl;
+        capturedPreview.src = capturedPhoto;
+
+        // Stop camera stream
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+        }
+
+        // Switch to character selection screen
+        switchScreen('character');
+    } catch (error) {
+        console.error('Capture failed:', error);
+        alert('Could not capture photo. Please try again.');
+    } finally {
+        captureBtn.innerHTML = originalLabel;
+        captureBtn.disabled = false;
+    }
 }
 
 // Select character
@@ -181,6 +333,11 @@ async function performFaceSwap() {
         return;
     }
 
+    if (!isValidImageDataUrl(capturedPhoto)) {
+        alert('Your photo data is invalid. Please retake or upload the photo again.');
+        return;
+    }
+
     // Switch to processing screen
     switchScreen('processing');
     updateLoadingText('Uploading your photo...');
@@ -201,12 +358,15 @@ async function performFaceSwap() {
 
         console.log('Response received:', response.status);
 
+        const data = await parseJsonResponse(response);
+
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Face swap failed');
+            throw new Error((data && data.error) || `Face swap failed (HTTP ${response.status})`);
         }
 
-        const data = await response.json();
+        if (!data || !data.prediction_id) {
+            throw new Error('Server did not return a prediction id');
+        }
         const predictionId = data.prediction_id;
         console.log('Prediction ID:', predictionId);
 
@@ -228,7 +388,13 @@ async function performFaceSwap() {
 
     } catch (error) {
         console.error('Face swap error:', error);
-        alert(`Sorry, something went wrong: ${error.message}\nPlease try again.`);
+
+        let message = error && error.message ? error.message : 'Unknown error';
+        if (message === 'Failed to fetch') {
+            message = 'Cannot connect to the server. Check that Flask is running on http://localhost:5000 and try again.';
+        }
+
+        alert(`Sorry, something went wrong: ${message}\nPlease try again.`);
         switchScreen('character');
     }
 }
@@ -245,7 +411,11 @@ async function pollForResult(predictionId, maxAttempts = 60) {
                 throw new Error('Failed to check status');
             }
 
-            const data = await response.json();
+            const data = await parseJsonResponse(response);
+            if (!data) {
+                throw new Error('Empty status response from server');
+            }
+
             const status = data.status;
 
             console.log(`[Poll ${attempts + 1}] Status: ${status}`);
@@ -373,3 +543,23 @@ window.addEventListener('beforeunload', () => {
         videoStream.getTracks().forEach(track => track.stop());
     }
 });
+
+// Gender Toggle Logic
+function setGender(gender) {
+    const btnBoy = document.getElementById('btn-boy');
+    const btnGirl = document.getElementById('btn-girl');
+    const gridBoy = document.getElementById('grid-boy');
+    const gridGirl = document.getElementById('grid-girl');
+    
+    if (gender === 'boy') {
+        btnBoy.className = 'btn btn-primary';
+        btnGirl.className = 'btn btn-secondary';
+        gridBoy.style.display = 'grid';
+        gridGirl.style.display = 'none';
+    } else {
+        btnBoy.className = 'btn btn-secondary';
+        btnGirl.className = 'btn btn-primary';
+        gridBoy.style.display = 'none';
+        gridGirl.style.display = 'grid';
+    }
+}

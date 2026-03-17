@@ -17,6 +17,15 @@ REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN')
 if REPLICATE_API_TOKEN:
     os.environ['REPLICATE_API_TOKEN'] = REPLICATE_API_TOKEN
 
+def _get_swap_weight() -> float:
+    """Get swap weight from env with safe fallback and range clamp."""
+    raw_weight = os.getenv('FACE_SWAP_WEIGHT', '0.9')
+    try:
+        parsed = float(raw_weight)
+    except ValueError:
+        parsed = 0.9
+    return max(0.5, min(1.0, parsed))
+
 
 # Character style mapping for SDXL IP-Adapter FaceID
 CHARACTER_STYLES = {
@@ -174,12 +183,91 @@ distorted face, cartoon, anime, exaggerated features, deformed''',
         'negative_prompt': 'cartoon, drawing, anime, low quality, modern clothing, western clothing, teeth, open mouth, overweight, bulky',
         'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1771073578/templates/southern_asiri_adult.jpg'
     },
+    'astronaut_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a astronaut, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625719/templates/dream_jobs/astronaut_boy.png'
+    },
+    'astronaut_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a astronaut, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625721/templates/dream_jobs/astronaut_girl.png'
+    },
+    'doctor_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a doctor, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625722/templates/dream_jobs/doctor_boy.png'
+    },
+    'doctor_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a doctor, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625723/templates/dream_jobs/doctor_girl.png'
+    },
+    'engineer_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a engineer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625724/templates/dream_jobs/engineer_boy.png'
+    },
+    'engineer_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a engineer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625725/templates/dream_jobs/engineer_girl.png'
+    },
+    'firefighter_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a firefighter, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625726/templates/dream_jobs/firefighter_boy.png'
+    },
+    'firefighter_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a firefighter, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625727/templates/dream_jobs/firefighter_girl.png'
+    },
+    'lawyer_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a lawyer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625728/templates/dream_jobs/lawyer_boy.png'
+    },
+    'nurse_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a nurse, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625729/templates/dream_jobs/nurse_boy.png'
+    },
+    'nurse_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a nurse, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625730/templates/dream_jobs/nurse_girl.png'
+    },
+    'police_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a police, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625731/templates/dream_jobs/police_boy.png'
+    },
+    'police_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a police, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625732/templates/dream_jobs/police_girl.png'
+    },
+    'software_engineer': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (engineer), working as a software, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625732/templates/dream_jobs/software_engineer.png'
+    },
+    'teacher_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a teacher, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625734/templates/dream_jobs/teacher_boy.png'
+    },
+    'teacher_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a teacher, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+        'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625735/templates/dream_jobs/teacher_girl.png'
+    },
 }
 
 
 def start_face_generation(
     child_image_url: str,
-    mask_image_url: str,
     character: str = 'superman'
 ) -> Optional[Dict[str, Any]]:
     """
@@ -187,7 +275,6 @@ def start_face_generation(
     
     Args:
         child_image_url: URL of child's photo (source face)
-        mask_image_url: URL of face mask image (not used by this model)
         character: Character name
         
     Returns:
@@ -210,16 +297,17 @@ def start_face_generation(
         
         # Use yan-ops/face_swap - true face swapping with weight control
         # Model expects: source_image (face to swap FROM) and target_image (image to swap TO)
+        swap_weight = _get_swap_weight()
         input_params = {
             "source_image": child_image_url,    # The user's face to swap FROM
             "target_image": template_url,       # The character template to swap TO
-            "weight": 1.0                       # Complete swap (1.0 = 100%, 0.5 = blend)
+            "weight": swap_weight
         }
         
         print(f"[Replicate] Using yan-ops/face_swap model", flush=True)
         print(f"  Source (child): {child_image_url[:50]}...", flush=True)
         print(f"  Target (template): {template_url[:50]}...", flush=True)
-        print(f"  Weight: 1.0 (complete swap, no blending)", flush=True)
+        print(f"  Weight: {swap_weight}", flush=True)
         
         # Use yan-ops/face_swap model (true face swapping)
         model_name = "yan-ops/face_swap"

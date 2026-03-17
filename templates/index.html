@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Saudi Photo Booth 🇸🇦</title>
+    <title>Dream Job Photo Booth 🚀</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 
@@ -13,7 +13,7 @@
         <!-- Screen 1: Camera View -->
         <div id="camera-screen" class="screen active">
             <div class="header">
-                <h1>📸 Saudi Traditions Booth</h1>
+                <h1>📸 Dream Job Booth</h1>
                 <p>Position yourself and smile!</p>
             </div>
 
@@ -37,53 +37,92 @@
             <div id="camera-error" class="error-message" style="display: none;">
                 <p>⚠️ Camera access denied. Please allow camera permissions and refresh.</p>
             </div>
+
         </div>
 
         <!-- Screen 2: Character Selection -->
         <div id="character-screen" class="screen">
             <div class="header">
-                <h1>🇸🇦 Choose Your Region</h1>
-                <p>Select a traditional attire!</p>
+                <h1>🚀 Choose Your Dream Job!</h1>
+                <p>What do you want to be when you grow up?</p>
             </div>
 
             <div class="preview-container">
                 <img id="captured-preview" src="" alt="Your photo">
             </div>
 
-            <div class="character-grid">
-                <div class="character-card" data-character="saudi_traditional_daglah">
-                    <img src="/static/characters/saudi_traditional_daglah.png?v=10" alt="Najd Daglah">
-                    <h3>نجد - Najd Daglah</h3>
+            <div class="gender-toggle" style="display: flex; justify-content: center; gap: 15px; margin-bottom: 20px;">
+                <button id="btn-boy" class="btn btn-primary" onclick="setGender('boy')" style="border-radius: 25px; padding: 10px 30px;">👦 Boy</button>
+                <button id="btn-girl" class="btn btn-secondary" onclick="setGender('girl')" style="border-radius: 25px; padding: 10px 30px;">👧 Girl</button>
+            </div>
+
+            <div class="character-grid" id="grid-boy">
+                <div class="character-card" data-character="doctor_boy">
+                    <img src="/static/characters/dream_jobs/doctor_boy_template_1773624539614.png" alt="Doctor">
+                    <h3>Doctor 🩺</h3>
                 </div>
-                <div class="character-card" data-character="jeddah_character_updated_1770487272655">
-                    <img src="/static/characters/jeddah_character_updated_1770487272655.jpg?v=10" alt="Hejaz Modern">
-                    <h3>الحجاز - Hejaz Modern</h3>
+                <div class="character-card" data-character="engineer_boy">
+                    <img src="/static/characters/dream_jobs/engineer_boy_template_1773624598638.png" alt="Engineer">
+                    <h3>Engineer 🏗️</h3>
                 </div>
-                <div class="character-card" data-character="daglah_child_character_1770488439465">
-                    <img src="/static/characters/daglah_child_character_1770488439465.jpg?v=10" alt="Najd Child">
-                    <h3>نجد - Najd Child</h3>
+                <div class="character-card" data-character="astronaut_boy">
+                    <img src="/static/characters/dream_jobs/astronaut_boy_temp_1773624756245.png" alt="Astronaut">
+                    <h3>Astronaut 🚀</h3>
                 </div>
-                <div class="character-card" data-character="sharqawi_dress_character_1770578762613">
-                    <img src="/static/characters/sharqawi_dress_character_1770578762613.jpg?v=10"
-                        alt="Eastern Sharqawi">
-                    <h3>الشرقية - Eastern Sharqawi</h3>
+                <div class="character-card" data-character="police_boy">
+                    <img src="/static/characters/dream_jobs/police_boy_template_1773624726775.png" alt="Police Officer">
+                    <h3>Police 👮</h3>
                 </div>
-                <div class="character-card" data-character="jeddah_character_updated_1770660835227">
-                    <img src="/static/characters/jeddah_character_updated_1770660835227.jpg?v=10" alt="Hejaz Heritage">
-                    <h3>الحجاز - Hejaz Heritage</h3>
+                <div class="character-card" data-character="firefighter_boy">
+                    <img src="/static/characters/dream_jobs/firefighter_boy_temp_1773624664653.png" alt="Firefighter">
+                    <h3>Firefighter 🚒</h3>
                 </div>
-                <div class="character-card" data-character="northern_woman_v1_1770658383334">
-                    <img src="/static/characters/northern_woman_v1_1770658383334.jpg?v=10" alt="Northern Traditional">
-                    <h3>الشمالية - Northern Traditional</h3>
+                <div class="character-card" data-character="teacher_boy">
+                    <img src="/static/characters/dream_jobs/teacher_boy_template_1773624630020.png" alt="Teacher">
+                    <h3>Teacher 👨‍🏫</h3>
                 </div>
-                <div class="character-card" data-character="sharqawi_girl_child">
-                    <img src="/static/characters/sharqawi_girl_closed_smile_1771072946837.jpg" alt="Sharqawi Girl">
-                    <h3>الشرقية (طفلة) - Sharqawi Girl</h3>
+                <div class="character-card" data-character="lawyer_boy">
+                    <img src="/static/characters/dream_jobs/lawyer_boy_template_1773624785330.png" alt="Lawyer">
+                    <h3>Lawyer ⚖️</h3>
                 </div>
-                <div class="character-card" data-character="southern_asiri_adult">
-                    <img src="/static/characters/southern_adult_beautiful_asiri_v2_1771073444304.jpg"
-                        alt="Southern Asiri">
-                    <h3>الجنوبية - Southern Asiri</h3>
+                <div class="character-card" data-character="software_engineer">
+                    <img src="/static/characters/dream_jobs/software_engineer_boy_1773624699363.png" alt="Software Engineer">
+                    <h3>Software Eng 💻</h3>
+                </div>
+            </div>
+
+            <div class="character-grid" id="grid-girl" style="display: none;">
+                <div class="character-card" data-character="doctor_girl">
+                    <img src="/static/characters/dream_jobs/doctor_girl_template_1773624553180.png" alt="Doctor">
+                    <h3>Doctor 🩺</h3>
+                </div>
+                <div class="character-card" data-character="engineer_girl">
+                    <img src="/static/characters/dream_jobs/engineer_girl_template_1773624614429.png" alt="Engineer">
+                    <h3>Engineer 🏗️</h3>
+                </div>
+                <div class="character-card" data-character="astronaut_girl">
+                    <img src="/static/characters/dream_jobs/astronaut_girl_temp_1773624771412.png" alt="Astronaut">
+                    <h3>Astronaut 🚀</h3>
+                </div>
+                <div class="character-card" data-character="police_girl">
+                    <img src="/static/characters/dream_jobs/police_girl_template_1773624741094.png" alt="Police Officer">
+                    <h3>Police 👮‍♀️</h3>
+                </div>
+                <div class="character-card" data-character="firefighter_girl">
+                    <img src="/static/characters/dream_jobs/firefighter_girl_temp_1773624677624.png" alt="Firefighter">
+                    <h3>Firefighter 🚒</h3>
+                </div>
+                <div class="character-card" data-character="teacher_girl">
+                    <img src="/static/characters/dream_jobs/teacher_girl_template_1773624646743.png" alt="Teacher">
+                    <h3>Teacher 👩‍🏫</h3>
+                </div>
+                <div class="character-card" data-character="nurse_girl">
+                    <img src="/static/characters/dream_jobs/nurse_girl_template_1773624583425.png" alt="Nurse">
+                    <h3>Nurse 🏥</h3>
+                </div>
+                <div class="character-card" data-character="nurse_boy">
+                    <img src="/static/characters/dream_jobs/nurse_boy_template_1773624568542.png" alt="Nurse (Boy)">
+                    <h3>Nurse (Boy) 🏥</h3>
                 </div>
             </div>
 
@@ -99,7 +138,7 @@
         <div id="processing-screen" class="screen">
             <div class="header">
                 <h1>✨ Creating Magic</h1>
-                <p>Blending your photo with traditional attire...</p>
+                <p>Blending your photo with your dream job outfit...</p>
             </div>
 
             <div class="loading-container">
@@ -112,7 +151,7 @@
         <div id="result-screen" class="screen">
             <div class="header">
                 <h1>🎉 Your Photo is Ready!</h1>
-                <p>Your traditional photo is complete!</p>
+                <p>Your dream job photo is complete!</p>
             </div>
 
             <div class="result-container">
