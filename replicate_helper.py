@@ -17,14 +17,56 @@ REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN')
 if REPLICATE_API_TOKEN:
     os.environ['REPLICATE_API_TOKEN'] = REPLICATE_API_TOKEN
 
-def _get_swap_weight() -> float:
-    """Get swap weight from env with safe fallback and range clamp."""
-    raw_weight = os.getenv('FACE_SWAP_WEIGHT', '0.9')
+def _clamp_weight(value: float) -> float:
+    return max(0.5, min(1.0, value))
+
+
+def _parse_weight_overrides(raw: str) -> Dict[str, float]:
+    """
+    Parse FACE_SWAP_WEIGHT_OVERRIDES in the format:
+    "doctor_boy=0.82,teacher_girl=0.84,default=0.85"
+    """
+    overrides: Dict[str, float] = {}
+    if not raw:
+        return overrides
+
+    for chunk in raw.split(','):
+        item = chunk.strip()
+        if not item or '=' not in item:
+            continue
+        key, value = item.split('=', 1)
+        key = key.strip().lower()
+        if not key:
+            continue
+        try:
+            parsed = float(value.strip())
+        except ValueError:
+            continue
+        overrides[key] = _clamp_weight(parsed)
+    return overrides
+
+
+def _get_swap_weight(character: Optional[str] = None, style_config: Optional[Dict[str, Any]] = None) -> float:
+    """Get swap weight with override priority: style_config -> env override -> env default."""
+    raw_weight = os.getenv('FACE_SWAP_WEIGHT', '0.85')
     try:
         parsed = float(raw_weight)
     except ValueError:
-        parsed = 0.9
-    return max(0.5, min(1.0, parsed))
+        parsed = 0.85
+    selected = _clamp_weight(parsed)
+
+    raw_overrides = os.getenv('FACE_SWAP_WEIGHT_OVERRIDES', '')
+    overrides = _parse_weight_overrides(raw_overrides)
+    character_key = (character or '').strip().lower()
+    if character_key and character_key in overrides:
+        selected = overrides[character_key]
+    elif 'default' in overrides:
+        selected = overrides['default']
+
+    if style_config and isinstance(style_config.get('swap_weight'), (int, float)):
+        selected = _clamp_weight(float(style_config['swap_weight']))
+
+    return selected
 
 
 # Character style mapping for SDXL IP-Adapter FaceID
@@ -297,7 +339,7 @@ def start_face_generation(
         
         # Use yan-ops/face_swap - true face swapping with weight control
         # Model expects: source_image (face to swap FROM) and target_image (image to swap TO)
-        swap_weight = _get_swap_weight()
+        swap_weight = _get_swap_weight(character=character, style_config=style_config)
         input_params = {
             "source_image": child_image_url,    # The user's face to swap FROM
             "target_image": template_url,       # The character template to swap TO

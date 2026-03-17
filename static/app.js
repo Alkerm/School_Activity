@@ -4,7 +4,6 @@ let capturedPhoto = null;
 let selectedCharacter = null;
 let videoStream = null;
 let currentUser = null;
-let shouldFlipCamera = true;
 
 // DOM elements
 const authScreen = document.getElementById('auth-screen');
@@ -373,8 +372,7 @@ function setupEventListeners() {
 
 function updateCameraFlipUI() {
     if (!cameraFeed) return;
-
-    cameraFeed.classList.toggle('flipped', shouldFlipCamera);
+    cameraFeed.classList.add('flipped');
 }
 
 // Handle file upload fallback
