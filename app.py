@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, Response
 from flask_cors import CORS
 import os
 import sys
@@ -8,6 +8,8 @@ import re
 import sqlite3
 import secrets
 from datetime import datetime
+import csv
+from io import StringIO
 import cv2
 import numpy as np
 from dotenv import load_dotenv
@@ -440,6 +442,57 @@ def admin_users():
         })
 
     return jsonify({'users': users, 'count': len(users)})
+
+
+@app.route('/admin/export-users', methods=['GET'])
+def admin_export_users():
+    if not admin_authorized():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    conn = get_db()
+    rows = conn.execute(
+        '''
+        SELECT id, email, used_uses, total_uses, created_at, last_login_at
+        FROM users
+        ORDER BY id DESC
+        '''
+    ).fetchall()
+    conn.close()
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'id',
+        'email',
+        'used_uses',
+        'total_uses',
+        'remaining_uses',
+        'created_at',
+        'last_login_at'
+    ])
+
+    for row in rows:
+        used_uses = int(row['used_uses'])
+        total_uses = int(row['total_uses'])
+        writer.writerow([
+            int(row['id']),
+            row['email'],
+            used_uses,
+            total_uses,
+            max(total_uses - used_uses, 0),
+            row['created_at'],
+            row['last_login_at'] or ''
+        ])
+
+    csv_data = output.getvalue()
+    output.close()
+    filename = f"users_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    return Response(
+        csv_data,
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
 
 
 @app.route('/swap-face', methods=['POST'])

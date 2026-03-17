@@ -1,6 +1,7 @@
 const adminKeyInput = document.getElementById('admin-key');
 const loadUsersBtn = document.getElementById('load-users-btn');
 const refreshUsersBtn = document.getElementById('refresh-users-btn');
+const exportUsersBtn = document.getElementById('export-users-btn');
 const adminMessage = document.getElementById('admin-message');
 const usersTbody = document.getElementById('users-tbody');
 const adminAddBox = document.getElementById('admin-add-box');
@@ -108,7 +109,52 @@ async function addTrials() {
     }
 }
 
+function exportUsersCsv() {
+    const key = (adminKeyInput.value || '').trim();
+    if (!key) {
+        setAdminMessage('Enter admin key first.', true);
+        setAdminAuthenticated(false);
+        return;
+    }
+
+    const url = `/admin/export-users?ts=${Date.now()}`;
+    fetch(url, {
+        method: 'GET',
+        headers: { 'X-Admin-Key': key }
+    }).then(async (response) => {
+        if (!response.ok) {
+            let err = 'Export failed';
+            try {
+                const data = await response.json();
+                err = data.error || err;
+            } catch (_) {
+                // ignore parse error
+            }
+            setAdminAuthenticated(false);
+            throw new Error(err);
+        }
+
+        setAdminAuthenticated(true);
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const contentDisposition = response.headers.get('Content-Disposition') || '';
+        const match = contentDisposition.match(/filename=([^;]+)/);
+        const fileName = match ? match[1] : `users_export_${Date.now()}.csv`;
+        link.href = downloadUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+        setAdminMessage('CSV export downloaded.');
+    }).catch((error) => {
+        setAdminMessage(error.message || 'Export failed.', true);
+    });
+}
+
 loadUsersBtn.addEventListener('click', loadUsers);
 refreshUsersBtn.addEventListener('click', loadUsers);
 addTrialsBtn.addEventListener('click', addTrials);
+exportUsersBtn.addEventListener('click', exportUsersCsv);
 setAdminAuthenticated(false);
