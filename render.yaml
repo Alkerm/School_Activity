@@ -9,6 +9,8 @@ services:
     envVars:
       - key: FLASK_SECRET_KEY
         generateValue: true
+      - key: PYTHON_VERSION
+        value: "3.11.7"
       - key: SESSION_COOKIE_SECURE
         value: "true"
       - key: DEFAULT_TRIALS
