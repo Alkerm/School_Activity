@@ -85,6 +85,20 @@ For production deployment:
 3. Configure HTTPS for camera access
 4. Use a reverse proxy (nginx, Apache)
 
+### Render quick deploy
+
+1. Push this repo to GitHub (already done).
+2. On Render, create a new Web Service from the repo.
+3. Render will use:
+   - Build: `pip install -r requirements.txt`
+   - Start: `gunicorn app:app`
+4. Set env vars from `.env.example` (at least `FLASK_SECRET_KEY`, `ADMIN_API_KEY`, `REPLICATE_API_TOKEN`, Cloudinary keys).
+5. Open:
+   - `/` for user app
+   - `/admin` for admin panel
+
+Important: current app uses SQLite (`DB_PATH=app.db`). On many free cloud instances, local disk may reset after redeploy/restart. For persistent user/trial data, move DB to managed PostgreSQL.
+
 ## Authentication And Trial Limits
 
 This app now includes:
