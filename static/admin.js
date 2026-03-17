@@ -3,6 +3,7 @@ const loadUsersBtn = document.getElementById('load-users-btn');
 const refreshUsersBtn = document.getElementById('refresh-users-btn');
 const adminMessage = document.getElementById('admin-message');
 const usersTbody = document.getElementById('users-tbody');
+const adminAddBox = document.getElementById('admin-add-box');
 const targetEmailInput = document.getElementById('target-email');
 const addUsesInput = document.getElementById('add-uses');
 const addTrialsBtn = document.getElementById('add-trials-btn');
@@ -36,6 +37,10 @@ function renderUsers(users) {
     });
 }
 
+function setAdminAuthenticated(isAuthenticated) {
+    adminAddBox.style.display = isAuthenticated ? 'grid' : 'none';
+}
+
 async function loadUsers() {
     const key = (adminKeyInput.value || '').trim();
     if (!key) {
@@ -51,11 +56,14 @@ async function loadUsers() {
         });
         const data = await response.json();
         if (!response.ok) {
+            setAdminAuthenticated(false);
             throw new Error(data.error || `Failed (HTTP ${response.status})`);
         }
         renderUsers(data.users || []);
+        setAdminAuthenticated(true);
         setAdminMessage(`Loaded ${data.count || 0} users.`);
     } catch (error) {
+        setAdminAuthenticated(false);
         setAdminMessage(error.message || 'Failed to load users.', true);
     }
 }
@@ -67,6 +75,7 @@ async function addTrials() {
 
     if (!key) {
         setAdminMessage('Enter admin key first.', true);
+        setAdminAuthenticated(false);
         return;
     }
     if (!email) {
@@ -102,3 +111,4 @@ async function addTrials() {
 loadUsersBtn.addEventListener('click', loadUsers);
 refreshUsersBtn.addEventListener('click', loadUsers);
 addTrialsBtn.addEventListener('click', addTrials);
+setAdminAuthenticated(false);
