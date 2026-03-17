@@ -5,7 +5,9 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-API_KEY = 'AIzaSyD-Oyn8zHdVAqqU1xDvE0IFtWtT_ebOsLk'
+API_KEY = os.getenv('GOOGLE_API_KEY')
+if not API_KEY:
+    raise ValueError('GOOGLE_API_KEY is not set')
 
 client = genai.Client(api_key=API_KEY)
 

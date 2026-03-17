@@ -4,11 +4,13 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-# Get Gemini API key directly (Hardcoded for testing based on your pasted key)
-API_KEY = 'AIzaSyD-Oyn8zHdVAqqU1xDvE0IFtWtT_ebOsLk'
+# Load Google API key from environment
+API_KEY = os.getenv('GOOGLE_API_KEY')
+if not API_KEY:
+    raise ValueError('GOOGLE_API_KEY is not set')
 
-if not API_KEY or API_KEY == 'your_gemini_api_key_here':
-    print("❌ ERROR: Please add your real GEMINI_API_KEY to the .env file")
+if not API_KEY or API_KEY == 'your_google_api_key_here':
+    print("❌ ERROR: Please add your real GOOGLE_API_KEY to the .env file")
     print("Get it from: https://aistudio.google.com/apikey")
     exit(1)
 

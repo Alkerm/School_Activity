@@ -10,8 +10,33 @@
 
 <body>
     <div class="container">
+        <div id="session-bar" class="session-bar" style="display: none;">
+            <span id="session-email"></span>
+            <span id="session-uses"></span>
+            <button id="logout-btn" class="btn btn-secondary">Logout</button>
+        </div>
+
+        <!-- Screen 0: Auth -->
+        <div id="auth-screen" class="screen active">
+            <div class="header">
+                <h1>Dream Job Booth Access</h1>
+                <p>Login or sign up with your email and password.</p>
+            </div>
+
+            <div class="auth-box">
+                <input type="email" id="auth-email" class="auth-input" placeholder="Enter your email address">
+                <input type="password" id="auth-password" class="auth-input" placeholder="Enter your password">
+                <div class="controls">
+                    <button id="login-btn" class="btn btn-primary">Login</button>
+                    <button id="signup-btn" class="btn btn-secondary">Sign Up</button>
+                </div>
+                <p id="auth-message" class="auth-message"></p>
+                <p class="auth-message"><a href="/admin">Go to Admin Page</a></p>
+            </div>
+        </div>
+
         <!-- Screen 1: Camera View -->
-        <div id="camera-screen" class="screen active">
+        <div id="camera-screen" class="screen">
             <div class="header">
                 <h1>📸 Dream Job Booth</h1>
                 <p>Position yourself and smile!</p>

@@ -85,6 +85,36 @@ For production deployment:
 3. Configure HTTPS for camera access
 4. Use a reverse proxy (nginx, Apache)
 
+## Authentication And Trial Limits
+
+This app now includes:
+- Email/password login/signup (`/auth/signup`, `/auth/login`)
+- Per-user usage limit (default `0`)
+- Admin endpoint to add more trials (`/admin/add-trials`)
+- Admin page at `/admin` to list users and add trials
+
+### Required/Important environment variables
+
+- `FLASK_SECRET_KEY`: Strong random string for signing sessions
+- `DB_PATH`: SQLite DB path (default `app.db`)
+- `DEFAULT_TRIALS`: New users initial allowed uses (default `0`)
+- `ADMIN_API_KEY`: Secret key for admin API
+
+### Add more trials for a user
+
+`POST /admin/add-trials`
+
+Headers:
+- `X-Admin-Key: <ADMIN_API_KEY>`
+
+JSON body:
+```json
+{
+  "email": "user@example.com",
+  "additional_uses": 20
+}
+```
+
 ## License
 
 MIT License - Feel free to use and modify!

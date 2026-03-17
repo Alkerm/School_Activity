@@ -34,6 +34,84 @@ body {
     min-height: 600px;
 }
 
+.session-bar {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 14px;
+    box-shadow: var(--shadow-md);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.session-bar .btn {
+    padding: 10px 18px;
+    font-size: 0.95rem;
+}
+
+.auth-box {
+    max-width: 500px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.auth-input {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 1rem;
+}
+
+.auth-verify-row {
+    display: flex;
+    gap: 10px;
+}
+
+.auth-message {
+    min-height: 24px;
+    text-align: center;
+    font-size: 0.95rem;
+}
+
+.admin-add-box {
+    display: grid;
+    grid-template-columns: 1fr 200px auto;
+    gap: 12px;
+    margin: 24px 0;
+    align-items: center;
+}
+
+.admin-table-wrap {
+    overflow-x: auto;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #ffffff;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.admin-table th,
+.admin-table td {
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 10px 12px;
+    font-size: 0.9rem;
+}
+
+.admin-table th {
+    background: #f9fafb;
+    font-weight: 700;
+}
+
 .screen {
     display: none;
     background: var(--card-bg);
@@ -321,6 +399,14 @@ body {
     .btn {
         padding: 12px 30px;
         font-size: 1rem;
+    }
+
+    .auth-verify-row {
+        flex-direction: column;
+    }
+
+    .admin-add-box {
+        grid-template-columns: 1fr;
     }
 }
 

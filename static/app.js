@@ -1,14 +1,25 @@
 // State management
-let currentScreen = 'camera';
+let currentScreen = 'auth';
 let capturedPhoto = null;
 let selectedCharacter = null;
 let videoStream = null;
+let currentUser = null;
 
 // DOM elements
+const authScreen = document.getElementById('auth-screen');
 const cameraScreen = document.getElementById('camera-screen');
 const characterScreen = document.getElementById('character-screen');
 const processingScreen = document.getElementById('processing-screen');
 const resultScreen = document.getElementById('result-screen');
+const sessionBar = document.getElementById('session-bar');
+const sessionEmail = document.getElementById('session-email');
+const sessionUses = document.getElementById('session-uses');
+const logoutBtn = document.getElementById('logout-btn');
+const authEmailInput = document.getElementById('auth-email');
+const authPasswordInput = document.getElementById('auth-password');
+const authMessage = document.getElementById('auth-message');
+const loginBtn = document.getElementById('login-btn');
+const signupBtn = document.getElementById('signup-btn');
 
 const cameraFeed = document.getElementById('camera-feed');
 const photoCanvas = document.getElementById('photo-canvas');
@@ -32,10 +43,10 @@ const faceDetector = ('FaceDetector' in window)
 const BURST_FRAME_COUNT = 3;
 const BURST_FRAME_DELAY_MS = 140;
 
-// Initialize camera on page load
-window.addEventListener('DOMContentLoaded', () => {
-    initCamera();
+// Initialize on page load
+window.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
+    await restoreSession();
 });
 
 function isValidImageDataUrl(value) {
@@ -53,6 +64,106 @@ async function parseJsonResponse(response) {
     } catch (parseError) {
         throw new Error(`Server returned invalid JSON (HTTP ${response.status})`);
     }
+}
+
+function setAuthMessage(message, isError = false) {
+    if (!authMessage) return;
+    authMessage.textContent = message || '';
+    authMessage.style.color = isError ? '#b91c1c' : '#374151';
+}
+
+function updateSessionBar(user) {
+    currentUser = user;
+    if (!user) {
+        sessionBar.style.display = 'none';
+        return;
+    }
+
+    sessionEmail.textContent = user.email;
+    sessionUses.textContent = `Remaining uses: ${user.remaining_uses}/${user.total_uses}`;
+    sessionBar.style.display = 'flex';
+}
+
+async function restoreSession() {
+    try {
+        const response = await fetch('/auth/me');
+        const data = await parseJsonResponse(response);
+        if (response.ok && data && data.user) {
+            updateSessionBar(data.user);
+            switchScreen('camera');
+            initCamera();
+        } else {
+            updateSessionBar(null);
+            switchScreen('auth');
+        }
+    } catch (error) {
+        updateSessionBar(null);
+        switchScreen('auth');
+    }
+}
+
+async function authenticate(mode) {
+    const email = (authEmailInput.value || '').trim();
+    const password = (authPasswordInput.value || '').trim();
+
+    if (!email) {
+        setAuthMessage('Please enter your email.', true);
+        return;
+    }
+    if (!password) {
+        setAuthMessage('Please enter your password.', true);
+        return;
+    }
+    if (mode === 'signup' && password.length < 8) {
+        setAuthMessage('Password must be at least 8 characters.', true);
+        return;
+    }
+
+    setAuthMessage(mode === 'signup' ? 'Creating account...' : 'Logging in...');
+
+    try {
+        const response = await fetch(mode === 'signup' ? '/auth/signup' : '/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        const data = await parseJsonResponse(response);
+        if (!response.ok) {
+            throw new Error((data && data.error) || `Failed (HTTP ${response.status})`);
+        }
+
+        if (!data || !data.user) {
+            throw new Error('Invalid auth response from server');
+        }
+
+        updateSessionBar(data.user);
+        authPasswordInput.value = '';
+        setAuthMessage(data.message || 'Authenticated successfully.');
+        switchScreen('camera');
+        initCamera();
+    } catch (error) {
+        setAuthMessage(error.message || 'Authentication failed', true);
+    }
+}
+
+async function logout() {
+    try {
+        await fetch('/auth/logout', { method: 'POST' });
+    } catch (error) {
+        console.error('Logout failed:', error);
+    }
+
+    currentUser = null;
+    updateSessionBar(null);
+    if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+    }
+    switchScreen('auth');
+}
+
+function handleUnauthorized() {
+    alert('Your session expired. Please login again.');
+    logout();
 }
 
 function wait(ms) {
@@ -232,6 +343,11 @@ async function initCamera() {
 
 // Setup event listeners
 function setupEventListeners() {
+    // Auth
+    loginBtn.addEventListener('click', () => authenticate('login'));
+    signupBtn.addEventListener('click', () => authenticate('signup'));
+    logoutBtn.addEventListener('click', logout);
+
     // Capture photo
     captureBtn.addEventListener('click', capturePhoto);
 
@@ -360,7 +476,15 @@ async function performFaceSwap() {
 
         const data = await parseJsonResponse(response);
 
+        if (response.status === 401) {
+            handleUnauthorized();
+            return;
+        }
+
         if (!response.ok) {
+            if (response.status === 402 && data && data.user) {
+                updateSessionBar(data.user);
+            }
             throw new Error((data && data.error) || `Face swap failed (HTTP ${response.status})`);
         }
 
@@ -368,6 +492,9 @@ async function performFaceSwap() {
             throw new Error('Server did not return a prediction id');
         }
         const predictionId = data.prediction_id;
+        if (data.user) {
+            updateSessionBar(data.user);
+        }
         console.log('Prediction ID:', predictionId);
 
         // Step 2: Poll for completion
@@ -406,6 +533,11 @@ async function pollForResult(predictionId, maxAttempts = 60) {
     while (attempts < maxAttempts) {
         try {
             const response = await fetch(`/check-status/${predictionId}`);
+
+            if (response.status === 401) {
+                handleUnauthorized();
+                throw new Error('Unauthorized');
+            }
 
             if (!response.ok) {
                 throw new Error('Failed to check status');
@@ -513,6 +645,7 @@ function retakePhoto() {
 // Switch between screens
 function switchScreen(screen) {
     // Hide all screens
+    authScreen.classList.remove('active');
     cameraScreen.classList.remove('active');
     characterScreen.classList.remove('active');
     processingScreen.classList.remove('active');
@@ -520,6 +653,9 @@ function switchScreen(screen) {
 
     // Show selected screen
     switch (screen) {
+        case 'auth':
+            authScreen.classList.add('active');
+            break;
         case 'camera':
             cameraScreen.classList.add('active');
             break;

@@ -1,12 +1,17 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
 import os
 import sys
 import base64
 import binascii
+import re
+import sqlite3
+import secrets
+from datetime import datetime
 import cv2
 import numpy as np
 from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Import our helper modules
 import cloudinary_helper
@@ -26,12 +31,139 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # Store active predictions in memory (for polling)
 active_predictions = {}
 FACE_TARGET_SIZE = int(os.getenv('FACE_TARGET_SIZE', '1024'))
 FACE_CROP_SCALE = float(os.getenv('FACE_CROP_SCALE', '2.4'))
 _face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+DB_PATH = os.getenv('DB_PATH', 'app.db')
+DEFAULT_TRIALS = int(os.getenv('DEFAULT_TRIALS', '0'))
+
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT,
+            is_verified INTEGER NOT NULL DEFAULT 0,
+            total_uses INTEGER NOT NULL DEFAULT 0,
+            used_uses INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            last_login_at TEXT
+        )
+        '''
+    )
+    columns = [row['name'] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if 'password_hash' not in columns:
+        conn.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
+    conn.commit()
+    conn.close()
+
+
+def utc_now_iso():
+    return datetime.utcnow().isoformat()
+
+
+def normalize_email(email):
+    if not isinstance(email, str):
+        return None
+    normalized = email.strip().lower()
+    if not re.match(r'^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$', normalized):
+        return None
+    return normalized
+
+
+def get_user_by_id(user_id):
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    return user
+
+
+def get_user_by_email(email):
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+    conn.close()
+    return user
+
+
+def admin_authorized():
+    admin_key = request.headers.get('X-Admin-Key')
+    expected_key = os.getenv('ADMIN_API_KEY')
+    return bool(expected_key and admin_key == expected_key)
+
+
+def user_public_info(user):
+    remaining = max(user['total_uses'] - user['used_uses'], 0)
+    return {
+        'email': user['email'],
+        'used_uses': int(user['used_uses']),
+        'total_uses': int(user['total_uses']),
+        'remaining_uses': int(remaining)
+    }
+
+
+def require_auth():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None, (jsonify({'error': 'Unauthorized'}), 401)
+    user = get_user_by_id(user_id)
+    if not user or not user['is_verified']:
+        session.clear()
+        return None, (jsonify({'error': 'Unauthorized'}), 401)
+    return user, None
+
+
+def consume_one_use(user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        '''
+        UPDATE users
+        SET used_uses = used_uses + 1
+        WHERE id = ? AND used_uses < total_uses
+        ''',
+        (user_id,)
+    )
+    conn.commit()
+    rowcount = cur.rowcount
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if rowcount == 0:
+        return False, user
+    return True, user
+
+
+def refund_one_use(user_id):
+    conn = get_db()
+    conn.execute(
+        '''
+        UPDATE users
+        SET used_uses = CASE WHEN used_uses > 0 THEN used_uses - 1 ELSE 0 END
+        WHERE id = ?
+        ''',
+        (user_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
+init_db()
 
 
 def decode_base64_image(image_input):
@@ -161,6 +293,155 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/admin')
+def admin_page():
+    """Serve the admin page"""
+    return render_template('admin.html')
+
+
+@app.route('/auth/signup', methods=['POST'])
+def auth_signup():
+    try:
+        data = request.get_json(silent=True) or {}
+        email = normalize_email(data.get('email'))
+        password = str(data.get('password') or '')
+
+        if not email:
+            return jsonify({'error': 'Invalid email address'}), 400
+        if len(password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+        existing_user = get_user_by_email(email)
+        if existing_user:
+            return jsonify({'error': 'User already exists. Please login.'}), 409
+
+        now = utc_now_iso()
+        password_hash = generate_password_hash(password)
+        conn = get_db()
+        conn.execute(
+            '''
+            INSERT INTO users (email, password_hash, is_verified, total_uses, used_uses, created_at, last_login_at)
+            VALUES (?, ?, 1, ?, 0, ?, ?)
+            ''',
+            (email, password_hash, DEFAULT_TRIALS, now, now)
+        )
+        conn.commit()
+        user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+        conn.close()
+
+        session['user_id'] = int(user['id'])
+        return jsonify({'message': 'Signup successful', 'user': user_public_info(user)})
+    except Exception as e:
+        return jsonify({'error': f'Signup failed: {str(e)}'}), 500
+
+
+@app.route('/auth/login', methods=['POST'])
+def auth_login():
+    try:
+        data = request.get_json(silent=True) or {}
+        email = normalize_email(data.get('email'))
+        password = str(data.get('password') or '')
+
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+
+        user = get_user_by_email(email)
+        if not user or not user['password_hash']:
+            return jsonify({'error': 'Invalid email or password'}), 401
+
+        if not check_password_hash(user['password_hash'], password):
+            return jsonify({'error': 'Invalid email or password'}), 401
+
+        conn = get_db()
+        conn.execute('UPDATE users SET is_verified = 1, last_login_at = ? WHERE id = ?', (utc_now_iso(), user['id']))
+        conn.commit()
+        user = conn.execute('SELECT * FROM users WHERE id = ?', (user['id'],)).fetchone()
+        conn.close()
+
+        session['user_id'] = int(user['id'])
+        return jsonify({'message': 'Login successful', 'user': user_public_info(user)})
+    except Exception as e:
+        return jsonify({'error': f'Login failed: {str(e)}'}), 500
+
+
+@app.route('/auth/me', methods=['GET'])
+def auth_me():
+    user, auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    return jsonify({'authenticated': True, 'user': user_public_info(user)})
+
+
+@app.route('/auth/logout', methods=['POST'])
+def auth_logout():
+    session.clear()
+    return jsonify({'message': 'Logged out'})
+
+
+@app.route('/admin/add-trials', methods=['POST'])
+def admin_add_trials():
+    if not admin_authorized():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json(silent=True) or {}
+    email = normalize_email(data.get('email'))
+    additional_uses = data.get('additional_uses')
+
+    if not email:
+        return jsonify({'error': 'Invalid email'}), 400
+    if not isinstance(additional_uses, int) or additional_uses <= 0:
+        return jsonify({'error': 'additional_uses must be a positive integer'}), 400
+
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+
+    conn.execute(
+        'UPDATE users SET total_uses = total_uses + ? WHERE id = ?',
+        (additional_uses, user['id'])
+    )
+    conn.commit()
+    updated = conn.execute('SELECT * FROM users WHERE id = ?', (user['id'],)).fetchone()
+    conn.close()
+
+    return jsonify({
+        'message': f'Added {additional_uses} uses',
+        'user': user_public_info(updated)
+    })
+
+
+@app.route('/admin/users', methods=['GET'])
+def admin_users():
+    if not admin_authorized():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    conn = get_db()
+    rows = conn.execute(
+        '''
+        SELECT id, email, used_uses, total_uses, created_at, last_login_at
+        FROM users
+        ORDER BY id DESC
+        '''
+    ).fetchall()
+    conn.close()
+
+    users = []
+    for row in rows:
+        users.append({
+            'id': int(row['id']),
+            'email': row['email'],
+            'used_uses': int(row['used_uses']),
+            'total_uses': int(row['total_uses']),
+            'remaining_uses': max(int(row['total_uses']) - int(row['used_uses']), 0),
+            'created_at': row['created_at'],
+            'last_login_at': row['last_login_at']
+        })
+
+    return jsonify({'users': users, 'count': len(users)})
+
+
 @app.route('/swap-face', methods=['POST'])
 def swap_face():
     """
@@ -173,17 +454,36 @@ def swap_face():
     print("FACE SWAP REQUEST RECEIVED", flush=True)
     print("=" * 60, flush=True)
     
+    usage_consumed = False
+    prediction_started = False
+    user_id_for_refund = None
+
     try:
+        user, auth_error = require_auth()
+        if auth_error:
+            return auth_error
+
+        consumed, post_consume_user = consume_one_use(user['id'])
+        user_id_for_refund = int(user['id'])
+        if not consumed:
+            return jsonify({
+                'error': 'No uses remaining. Contact admin to add more trials.',
+                'user': user_public_info(post_consume_user)
+            }), 402
+        usage_consumed = True
+
         data = request.get_json(silent=True)
         
         if not data or 'child_photo' not in data or 'character' not in data:
             print("[ERROR] Missing required fields", flush=True)
+            refund_one_use(user['id'])
             return jsonify({'error': 'Missing required fields: child_photo and character'}), 400
         
         # Decode child photo from base64 (data URL or raw base64)
         try:
             child_image_bytes = decode_base64_image(data['child_photo'])
         except ValueError as decode_error:
+            refund_one_use(user['id'])
             return jsonify({'error': str(decode_error)}), 400
 
         character = data['character']
@@ -204,6 +504,7 @@ def swap_face():
         upload_result = cloudinary_helper.upload_temp_image(processed_image_bytes)
         
         if not upload_result:
+            refund_one_use(user['id'])
             return jsonify({'error': 'Failed to upload image to cloud storage'}), 500
         
         child_image_url = upload_result['url']
@@ -221,15 +522,18 @@ def swap_face():
         if not prediction_info:
             # Cleanup uploaded images
             cloudinary_helper.delete_temp_image(child_public_id)
+            refund_one_use(user['id'])
             return jsonify({'error': 'Failed to start AI processing'}), 500
         
         prediction_id = prediction_info['prediction_id']
+        prediction_started = True
         
         # Store prediction info for cleanup later
         active_predictions[prediction_id] = {
             'child_cloudinary_id': child_public_id,
             'character': character,
-            'status': 'processing'
+            'status': 'processing',
+            'user_id': int(user['id'])
         }
         
         print(f"[SUCCESS] Prediction started: {prediction_id}", flush=True)
@@ -238,10 +542,13 @@ def swap_face():
         return jsonify({
             'prediction_id': prediction_id,
             'status': 'processing',
-            'message': 'Face blending started. Poll /check-status to get updates.'
+            'message': 'Face blending started. Poll /check-status to get updates.',
+            'user': user_public_info(post_consume_user)
         })
         
     except Exception as e:
+        if usage_consumed and not prediction_started and user_id_for_refund:
+            refund_one_use(user_id_for_refund)
         print(f"[ERROR] Exception in swap_face: {str(e)}", flush=True)
         import traceback
         tb_str = traceback.format_exc()
@@ -265,9 +572,15 @@ def check_status(prediction_id):
     In sync mode, results are returned immediately.
     """
     try:
+        user, auth_error = require_auth()
+        if auth_error:
+            return auth_error
+
         print(f"[POLL] Checking status for: {prediction_id}", flush=True)
         
         if prediction_id not in active_predictions:
+            return jsonify({'error': 'Prediction not found'}), 404
+        if active_predictions[prediction_id].get('user_id') != int(user['id']):
             return jsonify({'error': 'Prediction not found'}), 404
         
         # Check Replicate status
@@ -398,7 +711,8 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'cloudinary': 'configured' if os.getenv('CLOUDINARY_API_KEY') else 'not configured',
-        'replicate': 'configured' if os.getenv('REPLICATE_API_TOKEN') else 'not configured'
+        'replicate': 'configured' if os.getenv('REPLICATE_API_TOKEN') else 'not configured',
+        'auth_db': DB_PATH
     })
 
 
