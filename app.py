@@ -585,17 +585,28 @@ def swap_face():
             return jsonify({'error': str(decode_error)}), 400
 
         character = data['character']
+        requested_model = (os.getenv('FACE_SWAP_MODEL') or 'yan-ops/face_swap').strip().lower()
         
         print(f"[INFO] Character: {character}", flush=True)
         print(f"[INFO] Original image size: {len(child_image_bytes)} bytes", flush=True)
 
-        # Preprocess photo for better face-swap quality
-        processed_image_bytes, used_face_crop = preprocess_child_photo(child_image_bytes)
-        print(
-            f"[INFO] Preprocessed image size: {len(processed_image_bytes)} bytes "
-            f"(face_crop={'yes' if used_face_crop else 'no'})",
-            flush=True
-        )
+        if requested_model in ('google/nano-banana', 'google/nano-banana-pro'):
+            # Keep full-frame context for image-edit models so face/body integration
+            # remains natural; aggressive face crop can make edits look pasted.
+            processed_image_bytes = child_image_bytes
+            print(
+                f"[INFO] Using original image bytes for model {requested_model} "
+                f"(no face crop preprocessing)",
+                flush=True
+            )
+        else:
+            # Preprocess photo for better template face-swap quality
+            processed_image_bytes, used_face_crop = preprocess_child_photo(child_image_bytes)
+            print(
+                f"[INFO] Preprocessed image size: {len(processed_image_bytes)} bytes "
+                f"(face_crop={'yes' if used_face_crop else 'no'})",
+                flush=True
+            )
         
         # Step 1: Upload child photo to Cloudinary
         print("[STEP 1] Uploading child photo to Cloudinary...", flush=True)
@@ -631,7 +642,8 @@ def swap_face():
             'child_cloudinary_id': child_public_id,
             'character': character,
             'status': 'processing',
-            'user_id': int(user['id'])
+            'user_id': int(user['id']),
+            'model': prediction_info.get('model')
         }
         
         print(f"[SUCCESS] Prediction started: {prediction_id}", flush=True)
@@ -640,6 +652,7 @@ def swap_face():
         return jsonify({
             'prediction_id': prediction_id,
             'status': 'processing',
+            'model': prediction_info.get('model'),
             'message': 'Face blending started. Poll /check-status to get updates.',
             'user': user_public_info(post_consume_user)
         })
@@ -718,7 +731,8 @@ def check_status(prediction_id):
             
             return jsonify({
                 'status': 'succeeded',
-                'result_url': result_url
+                'result_url': result_url,
+                'model': prediction_data.get('model')
             })
         
         elif status == 'failed':
@@ -735,13 +749,15 @@ def check_status(prediction_id):
             
             return jsonify({
                 'status': 'failed',
-                'error': error_msg
+                'error': error_msg,
+                'model': prediction_data.get('model')
             })
         
         else:
             # Shouldn't happen in sync mode, but handle it
             return jsonify({
-                'status': status
+                'status': status,
+                'model': prediction_data.get('model')
             })
         
     except Exception as e:

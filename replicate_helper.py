@@ -6,6 +6,7 @@ Handles face blending using lucataco/ip_adapter-face-inpaint model.
 import replicate
 import os
 import time
+import json
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
@@ -67,6 +68,132 @@ def _get_swap_weight(character: Optional[str] = None, style_config: Optional[Dic
         selected = _clamp_weight(float(style_config['swap_weight']))
 
     return selected
+
+
+def _get_face_swap_model() -> str:
+    raw = (os.getenv('FACE_SWAP_MODEL') or 'yan-ops/face_swap').strip().lower()
+    if raw in (
+        'yan-ops/face_swap',
+        'codeplugtech/face-swap',
+        'google/nano-banana',
+        'google/nano-banana-pro'
+    ):
+        return raw
+    return 'yan-ops/face_swap'
+
+
+def _get_fallback_model(primary_model: str) -> Optional[str]:
+    raw = (os.getenv('FACE_SWAP_FALLBACK_MODEL') or '').strip().lower()
+    if raw in (
+        'yan-ops/face_swap',
+        'codeplugtech/face-swap',
+        'google/nano-banana',
+        'google/nano-banana-pro'
+    ) and raw != primary_model:
+        return raw
+    return None
+
+
+def _build_nano_banana_prompt(character: str, style_config: Optional[Dict[str, Any]] = None) -> str:
+    shared_constraints = (
+        "Identity lock: keep the exact same child face from the input photo "
+        "(same eyes, nose, mouth, jawline, skin tone, and natural age). "
+        "Do not change facial structure. Keep the child looking 8-12 years old. "
+        "Keep expression natural and friendly. Photorealistic, high detail, natural skin texture, "
+        "clean lighting, sharp focus. No text, no watermark, no logo, no cartoon, no anime, "
+        "no extra people, no face distortion."
+    )
+    job_prompt = style_config.get('prompt') if style_config else None
+
+    # Prefer external prompt pack if available.
+    try:
+        prompt_file = os.path.join(os.path.dirname(__file__), 'nano_banana_prompts.json')
+        if os.path.exists(prompt_file):
+            with open(prompt_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            prompts = config.get('prompts') or {}
+            loaded_shared = config.get('shared_constraints')
+            if isinstance(loaded_shared, str) and loaded_shared.strip():
+                shared_constraints = loaded_shared.strip()
+            key = (character or '').strip().lower()
+            # Fallback for character keys like doctor_boy -> doctor.
+            if key not in prompts and '_' in key:
+                key = key.split('_', 1)[0]
+            loaded_prompt = prompts.get(key)
+            if isinstance(loaded_prompt, str) and loaded_prompt.strip():
+                job_prompt = loaded_prompt.strip()
+    except Exception:
+        pass
+
+    if not job_prompt:
+        job_prompt = (
+            f"Edit this child photo into a realistic {character.replace('_', ' ')} portrait. "
+            "Dress the child in role-appropriate professional clothing and set a matching real-world background."
+        )
+
+    return f"{job_prompt} {shared_constraints}"
+
+
+def _build_input_candidates(
+    model_name: str,
+    source_image: str,
+    target_image: Optional[str],
+    weight: float,
+    character: str,
+    style_config: Optional[Dict[str, Any]] = None
+) -> list:
+    if model_name == 'yan-ops/face_swap':
+        return [{
+            "source_image": source_image,
+            "target_image": target_image,
+            "weight": weight
+        }]
+
+    if model_name == 'codeplugtech/face-swap':
+        # Try common schema variants defensively to avoid breaking on model-side changes.
+        return [
+            {"input_image": target_image, "swap_image": source_image},
+            {"target_image": target_image, "source_image": source_image},
+            {"image": target_image, "swap_image": source_image},
+            {"input": target_image, "swap": source_image},
+        ]
+
+    if model_name in ('google/nano-banana', 'google/nano-banana-pro'):
+        prompt = _build_nano_banana_prompt(character=character, style_config=style_config)
+        return [
+            {"prompt": prompt, "image_input": [source_image], "output_format": "jpg"},
+            {"prompt": prompt, "image_input": source_image, "output_format": "jpg"},
+            {"prompt": prompt, "images": [source_image], "output_format": "jpg"},
+            {"prompt": prompt, "image": source_image, "output_format": "jpg"},
+        ]
+
+    return [{
+        "source_image": source_image,
+        "target_image": target_image,
+        "weight": weight
+    }]
+
+
+def _create_prediction_with_candidates(model_name: str, input_candidates: list) -> Optional[Any]:
+    model = replicate.models.get(model_name)
+    version = model.latest_version
+    print(f"[Replicate] Using model: {model_name} (version: {version.id[:12]}...)", flush=True)
+
+    last_error = None
+    for idx, input_params in enumerate(input_candidates, start=1):
+        try:
+            print(f"[Replicate] Trying input schema #{idx}: {list(input_params.keys())}", flush=True)
+            return replicate.predictions.create(
+                version=version.id,
+                input=input_params
+            )
+        except Exception as e:
+            last_error = e
+            print(f"[Replicate] Schema #{idx} failed: {str(e)}", flush=True)
+
+    if last_error:
+        raise last_error
+    return None
 
 
 # Character style mapping for SDXL IP-Adapter FaceID
@@ -326,53 +453,64 @@ def start_face_generation(
         print(f"[Replicate] Starting Face Swap for character: {character}", flush=True)
         print(f"[Replicate] Child/Source image: {child_image_url[:50]}...", flush=True)
         
+        primary_model = _get_face_swap_model()
+        fallback_model = _get_fallback_model(primary_model)
+        uses_template = primary_model not in ('google/nano-banana', 'google/nano-banana-pro')
+
         # Get character-specific settings
         style_config = CHARACTER_STYLES.get(character.lower(), CHARACTER_STYLES['superman'])
         
         # Get template image URL (target face)
         template_url = style_config.get('template_image')
-        if not template_url:
+        if uses_template and not template_url:
             print(f"[Replicate] ERROR: No template image for character: {character}", flush=True)
             return None
         
-        print(f"[Replicate] Template/Target: {template_url[:50]}...", flush=True)
-        
-        # Use yan-ops/face_swap - true face swapping with weight control
-        # Model expects: source_image (face to swap FROM) and target_image (image to swap TO)
         swap_weight = _get_swap_weight(character=character, style_config=style_config)
-        input_params = {
-            "source_image": child_image_url,    # The user's face to swap FROM
-            "target_image": template_url,       # The character template to swap TO
-            "weight": swap_weight
-        }
-        
-        print(f"[Replicate] Using yan-ops/face_swap model", flush=True)
+
+        print(f"[Replicate] Preferred model: {primary_model}", flush=True)
+        if fallback_model:
+            print(f"[Replicate] Fallback model: {fallback_model}", flush=True)
         print(f"  Source (child): {child_image_url[:50]}...", flush=True)
-        print(f"  Target (template): {template_url[:50]}...", flush=True)
+        if template_url:
+            print(f"  Target (template): {template_url[:50]}...", flush=True)
         print(f"  Weight: {swap_weight}", flush=True)
-        
-        # Use yan-ops/face_swap model (true face swapping)
-        model_name = "yan-ops/face_swap"
-        
-        print(f"[Replicate] Getting model version...", flush=True)
-        model = replicate.models.get(model_name)
-        version = model.latest_version
-        
-        print(f"[Replicate] Sending request to {model_name} (version: {version.id[:12]}...)", flush=True)
-        
-        # Create prediction using VERSION (not model name)
-        prediction = replicate.predictions.create(
-            version=version.id,
-            input=input_params
-        )
+
+        prediction = None
+        model_used = primary_model
+        try:
+            input_candidates = _build_input_candidates(
+                model_name=primary_model,
+                source_image=child_image_url,
+                target_image=template_url,
+                weight=swap_weight,
+                character=character,
+                style_config=style_config
+            )
+            prediction = _create_prediction_with_candidates(primary_model, input_candidates)
+        except Exception as primary_error:
+            if not fallback_model:
+                raise primary_error
+            print(f"[Replicate] Primary model failed, trying fallback. Error: {primary_error}", flush=True)
+            model_used = fallback_model
+            fallback_candidates = _build_input_candidates(
+                model_name=fallback_model,
+                source_image=child_image_url,
+                target_image=template_url,
+                weight=swap_weight,
+                character=character,
+                style_config=style_config
+            )
+            prediction = _create_prediction_with_candidates(fallback_model, fallback_candidates)
         
         prediction_id = prediction.id
-        print(f"[Replicate] Prediction started: {prediction_id}", flush=True)
+        print(f"[Replicate] Prediction started: {prediction_id} (model: {model_used})", flush=True)
         
         return {
             'prediction_id': prediction_id,
             'status': prediction.status,
-            'created_at': time.time()
+            'created_at': time.time(),
+            'model': model_used
         }
         
     except Exception as e:

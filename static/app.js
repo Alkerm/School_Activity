@@ -500,6 +500,9 @@ async function performFaceSwap() {
             throw new Error('Server did not return a prediction id');
         }
         const predictionId = data.prediction_id;
+        if (data.model) {
+            console.log('Model used:', data.model);
+        }
         if (data.user) {
             updateSessionBar(data.user);
         }
@@ -562,6 +565,9 @@ async function pollForResult(predictionId, maxAttempts = 60) {
 
             if (status === 'succeeded') {
                 console.log('Generation complete!');
+                if (data.model) {
+                    console.log('Completed with model:', data.model);
+                }
                 return data.result_url;
             } else if (status === 'failed') {
                 throw new Error(data.error || 'Generation failed');
