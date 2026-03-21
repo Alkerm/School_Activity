@@ -5,7 +5,7 @@ import sys
 import base64
 import binascii
 import re
-import sqlite3
+import json
 import secrets
 from datetime import datetime
 import csv
@@ -18,6 +18,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # Import our helper modules
 import cloudinary_helper
 import replicate_helper
+from json_db import JsonDB
+from postgres_db import PostgresDB
 
 # Fix Windows console encoding issues
 if sys.platform == 'win32':
@@ -46,80 +48,37 @@ _face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_front
 DEFAULT_TRIALS = int(os.getenv('DEFAULT_TRIALS', '0'))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# ── Database layer ────────────────────────────────────────────
+# Auto-detect: DATABASE_URL → PostgreSQL (production)
+#              otherwise    → JSON file  (local dev)
 
-def resolve_db_path():
-    """
-    Resolve the database path to a stable absolute location.
-    - Absolute DB_PATH values are used as-is.
-    - Relative DB_PATH values are resolved from this file's directory.
-    - On Render, if RENDER_DISK_PATH is configured and DB_PATH is just a filename,
-      place the sqlite file on the mounted disk for persistence.
-    """
-    raw_db_path = (os.getenv('DB_PATH') or 'app.db').strip()
-    if os.path.isabs(raw_db_path):
-        resolved = raw_db_path
-    else:
+DATABASE_URL = os.getenv('DATABASE_URL', '').strip()
+
+if DATABASE_URL:
+    # Production: PostgreSQL
+    # Render sometimes provides postgres:// but psycopg2 needs postgresql://
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    db = PostgresDB(DATABASE_URL, default_trials=DEFAULT_TRIALS)
+    DB_PATH = DATABASE_URL  # for health endpoint display
+    print(f"[DB] Using PostgreSQL", flush=True)
+else:
+    # Local dev: JSON file
+    def _resolve_json_path():
+        raw_path = (os.getenv('DB_PATH') or 'users.json').strip()
+        if raw_path.endswith('.db'):
+            raw_path = raw_path.rsplit('.', 1)[0] + '.json'
+        if os.path.isabs(raw_path):
+            return raw_path
         render_disk = (os.getenv('RENDER_DISK_PATH') or '').strip()
-        if render_disk and os.path.basename(raw_db_path) == raw_db_path:
-            resolved = os.path.join(render_disk, raw_db_path)
-        else:
-            resolved = os.path.join(BASE_DIR, raw_db_path)
+        if render_disk and os.path.basename(raw_path) == raw_path:
+            return os.path.join(render_disk, raw_path)
+        return os.path.join(BASE_DIR, raw_path)
 
-    db_dir = os.path.dirname(resolved)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
-    return resolved
+    DB_PATH = _resolve_json_path()
+    db = JsonDB(DB_PATH, default_trials=DEFAULT_TRIALS)
+    print(f"[DB] Using JSON file: {DB_PATH}", flush=True)
 
-
-DB_PATH = resolve_db_path()
-
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT,
-            is_verified INTEGER NOT NULL DEFAULT 0,
-            total_uses INTEGER NOT NULL DEFAULT 0,
-            used_uses INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            last_login_at TEXT
-        )
-        '''
-    )
-    columns = [row['name'] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
-
-    # Backward-compatible migrations for older sqlite schemas.
-    if 'password_hash' not in columns:
-        conn.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
-    if 'is_verified' not in columns:
-        conn.execute('ALTER TABLE users ADD COLUMN is_verified INTEGER NOT NULL DEFAULT 0')
-    if 'total_uses' not in columns:
-        conn.execute(f'ALTER TABLE users ADD COLUMN total_uses INTEGER NOT NULL DEFAULT {DEFAULT_TRIALS}')
-    if 'used_uses' not in columns:
-        conn.execute('ALTER TABLE users ADD COLUMN used_uses INTEGER NOT NULL DEFAULT 0')
-    if 'created_at' not in columns:
-        conn.execute('ALTER TABLE users ADD COLUMN created_at TEXT')
-    if 'last_login_at' not in columns:
-        conn.execute('ALTER TABLE users ADD COLUMN last_login_at TEXT')
-
-    now_iso = datetime.utcnow().isoformat()
-    conn.execute('UPDATE users SET is_verified = 1 WHERE is_verified IS NULL')
-    conn.execute('UPDATE users SET total_uses = ? WHERE total_uses IS NULL', (DEFAULT_TRIALS,))
-    conn.execute('UPDATE users SET used_uses = 0 WHERE used_uses IS NULL')
-    conn.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ""', (now_iso,))
-    conn.commit()
-    conn.close()
 
 
 def utc_now_iso():
@@ -136,17 +95,11 @@ def normalize_email(email):
 
 
 def get_user_by_id(user_id):
-    conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
-    conn.close()
-    return user
+    return db.get_user_by_id(user_id)
 
 
 def get_user_by_email(email):
-    conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-    conn.close()
-    return user
+    return db.get_user_by_email(email)
 
 
 def admin_authorized():
@@ -177,40 +130,12 @@ def require_auth():
 
 
 def consume_one_use(user_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        '''
-        UPDATE users
-        SET used_uses = used_uses + 1
-        WHERE id = ? AND used_uses < total_uses
-        ''',
-        (user_id,)
-    )
-    conn.commit()
-    rowcount = cur.rowcount
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
-    conn.close()
-    if rowcount == 0:
-        return False, user
-    return True, user
+    return db.consume_one_use(user_id)
 
 
 def refund_one_use(user_id):
-    conn = get_db()
-    conn.execute(
-        '''
-        UPDATE users
-        SET used_uses = CASE WHEN used_uses > 0 THEN used_uses - 1 ELSE 0 END
-        WHERE id = ?
-        ''',
-        (user_id,)
-    )
-    conn.commit()
-    conn.close()
+    db.refund_one_use(user_id)
 
-
-init_db()
 
 
 def decode_base64_image(image_input):
@@ -364,17 +289,9 @@ def auth_signup():
 
         now = utc_now_iso()
         password_hash = generate_password_hash(password)
-        conn = get_db()
-        conn.execute(
-            '''
-            INSERT INTO users (email, password_hash, is_verified, total_uses, used_uses, created_at, last_login_at)
-            VALUES (?, ?, 1, ?, 0, ?, ?)
-            ''',
-            (email, password_hash, DEFAULT_TRIALS, now, now)
-        )
-        conn.commit()
-        user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-        conn.close()
+        user = db.create_user(email, password_hash, now)
+        if not user:
+            return jsonify({'error': 'User already exists. Please login.'}), 409
 
         session['user_id'] = int(user['id'])
         return jsonify({'message': 'Signup successful', 'user': user_public_info(user)})
@@ -399,11 +316,7 @@ def auth_login():
         if not check_password_hash(user['password_hash'], password):
             return jsonify({'error': 'Invalid email or password'}), 401
 
-        conn = get_db()
-        conn.execute('UPDATE users SET is_verified = 1, last_login_at = ? WHERE id = ?', (utc_now_iso(), user['id']))
-        conn.commit()
-        user = conn.execute('SELECT * FROM users WHERE id = ?', (user['id'],)).fetchone()
-        conn.close()
+        user = db.update_login(user['id'], utc_now_iso())
 
         session['user_id'] = int(user['id'])
         return jsonify({'message': 'Login successful', 'user': user_public_info(user)})
@@ -439,19 +352,11 @@ def admin_add_trials():
     if not isinstance(additional_uses, int) or additional_uses <= 0:
         return jsonify({'error': 'additional_uses must be a positive integer'}), 400
 
-    conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+    user = get_user_by_email(email)
     if not user:
-        conn.close()
         return jsonify({'error': 'User not found'}), 404
 
-    conn.execute(
-        'UPDATE users SET total_uses = total_uses + ? WHERE id = ?',
-        (additional_uses, user['id'])
-    )
-    conn.commit()
-    updated = conn.execute('SELECT * FROM users WHERE id = ?', (user['id'],)).fetchone()
-    conn.close()
+    updated = db.add_trials(user['id'], additional_uses)
 
     return jsonify({
         'message': f'Added {additional_uses} uses',
@@ -464,15 +369,7 @@ def admin_users():
     if not admin_authorized():
         return jsonify({'error': 'Unauthorized'}), 401
 
-    conn = get_db()
-    rows = conn.execute(
-        '''
-        SELECT id, email, used_uses, total_uses, created_at, last_login_at
-        FROM users
-        ORDER BY id DESC
-        '''
-    ).fetchall()
-    conn.close()
+    rows = db.list_users()
 
     users = []
     for row in rows:
@@ -494,15 +391,7 @@ def admin_export_users():
     if not admin_authorized():
         return jsonify({'error': 'Unauthorized'}), 401
 
-    conn = get_db()
-    rows = conn.execute(
-        '''
-        SELECT id, email, used_uses, total_uses, created_at, last_login_at
-        FROM users
-        ORDER BY id DESC
-        '''
-    ).fetchall()
-    conn.close()
+    rows = db.list_users()
 
     output = StringIO()
     writer = csv.writer(output)

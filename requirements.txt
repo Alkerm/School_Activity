@@ -6,6 +6,7 @@ python-dotenv
 replicate
 cloudinary
 gunicorn
+psycopg2-binary
 opencv-python-headless
 numpy
 qrcode[pil]

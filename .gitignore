@@ -30,6 +30,8 @@ error_log.txt
 test_result.log
 test_output.txt
 app.db
+users.json
+users.json.tmp
 templates_kids/
 cloudinary_url.txt
 crash_log.txt
