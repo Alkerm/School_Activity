@@ -71,7 +71,7 @@ def _get_swap_weight(character: Optional[str] = None, style_config: Optional[Dic
 
 
 def _get_face_swap_model() -> str:
-    raw = (os.getenv('FACE_SWAP_MODEL') or 'yan-ops/face_swap').strip().lower()
+    raw = (os.getenv('FACE_SWAP_MODEL') or 'google/nano-banana').strip().lower()
     if raw in (
         'yan-ops/face_swap',
         'codeplugtech/face-swap',
@@ -79,7 +79,7 @@ def _get_face_swap_model() -> str:
         'google/nano-banana-pro'
     ):
         return raw
-    return 'yan-ops/face_swap'
+    return 'google/nano-banana'
 
 
 def _get_fallback_model(primary_model: str) -> Optional[str]:
@@ -397,6 +397,10 @@ distorted face, cartoon, anime, exaggerated features, deformed''',
         'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
         'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625728/templates/dream_jobs/lawyer_boy.png'
     },
+    'lawyer_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a lawyer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
     'nurse_boy': {
         'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a nurse, cinematic lighting.',
         'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
@@ -418,9 +422,13 @@ distorted face, cartoon, anime, exaggerated features, deformed''',
         'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625732/templates/dream_jobs/police_girl.png'
     },
     'software_engineer': {
-        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (engineer), working as a software, cinematic lighting.',
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a software engineer, cinematic lighting.',
         'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
         'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625732/templates/dream_jobs/software_engineer.png'
+    },
+    'software_engineer_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a software engineer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
     },
     'teacher_boy': {
         'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a teacher, cinematic lighting.',
@@ -431,6 +439,119 @@ distorted face, cartoon, anime, exaggerated features, deformed''',
         'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a teacher, cinematic lighting.',
         'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
         'template_image': 'https://res.cloudinary.com/dfcqp8igu/image/upload/v1773625735/templates/dream_jobs/teacher_girl.png'
+    },
+    # ── New Dream Jobs ──────────────────────────────────────────────────────────
+    'architect_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as an architect, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'architect_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as an architect, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'businessman_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a businessman, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'businesswoman_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a businesswoman, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'cook_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a cook, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'cook_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a cook, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'driver_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a driver, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'driver_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a driver, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'fashion_designer_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a fashion designer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'fashion_designer_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a fashion designer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'farmer_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a farmer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'farmer_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a farmer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'flight_attendant_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a flight attendant, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'flight_attendant_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a flight attendant, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'journalist_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a journalist, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'journalist_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a journalist, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'manager_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a manager, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'manager_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a manager, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'mechanic_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a mechanic, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'mechanic_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a mechanic, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'photographer_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a photographer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'photographer_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a photographer, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'pilot_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a pilot, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'pilot_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a pilot, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'waiter_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), working as a waiter, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'waitress_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), working as a waitress, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'football_player_boy': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (boy), playing as a professional football player, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
+    },
+    'football_player_girl': {
+        'prompt': 'A photorealistic portrait of a young Saudi Arabian child (girl), playing as a professional football player, cinematic lighting.',
+        'negative_prompt': 'cartoon, drawing, anime, low quality, adult face, aging, distorted, ugly',
     },
 }
 
@@ -462,9 +583,13 @@ def start_face_generation(
         
         # Get template image URL (target face)
         template_url = style_config.get('template_image')
+
+        # Auto-fallback: if no template image available, switch to nano-banana (prompt-only)
         if uses_template and not template_url:
-            print(f"[Replicate] ERROR: No template image for character: {character}", flush=True)
-            return None
+            print(f"[Replicate] No template for '{character}' — auto-switching to google/nano-banana.", flush=True)
+            primary_model = 'google/nano-banana'
+            fallback_model = None
+            uses_template = False
         
         swap_weight = _get_swap_weight(character=character, style_config=style_config)
 
