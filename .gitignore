@@ -40,3 +40,7 @@ error_out.json
 final_url.txt
 out.txt
 upload_url.txt
+
+# Database backups — never commit these (they contain sensitive user data)
+backups/
+*.sql

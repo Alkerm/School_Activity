@@ -402,6 +402,77 @@ def admin_users():
     return jsonify({'users': users, 'count': len(users)})
 
 
+@app.route('/admin/backup-sql', methods=['GET'])
+def admin_backup_sql():
+    """
+    Download a full SQL backup of the users table.
+    Protected by ADMIN_API_KEY header.
+
+    Usage:
+        curl -H "X-Admin-Key: YOUR_KEY" https://your-app.vercel.app/admin/backup-sql -o backup.sql
+    Or just open in browser with ?key=YOUR_ADMIN_KEY
+    """
+    # Support key via header OR query param for easy browser access
+    admin_key = request.headers.get('X-Admin-Key') or request.args.get('key')
+    expected_key = os.getenv('ADMIN_API_KEY')
+    if not expected_key or admin_key != expected_key:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    try:
+        rows = db.list_users()
+
+        lines = []
+        lines.append(f"-- SQL Backup generated at {datetime.utcnow().isoformat()}")
+        lines.append(f"-- Total users: {len(rows)}")
+        lines.append("")
+        lines.append("CREATE TABLE IF NOT EXISTS users (")
+        lines.append("    id SERIAL PRIMARY KEY,")
+        lines.append("    email TEXT UNIQUE NOT NULL,")
+        lines.append("    password_hash TEXT,")
+        lines.append("    is_verified INTEGER NOT NULL DEFAULT 0,")
+        lines.append("    total_uses INTEGER NOT NULL DEFAULT 0,")
+        lines.append("    used_uses INTEGER NOT NULL DEFAULT 0,")
+        lines.append("    created_at TEXT NOT NULL DEFAULT '',")
+        lines.append("    last_login_at TEXT")
+        lines.append(");")
+        lines.append("")
+
+        def esc(val):
+            if val is None:
+                return "NULL"
+            return "'" + str(val).replace("'", "''") + "'"
+
+        for row in rows:
+            lines.append(
+                f"INSERT INTO users (email, password_hash, is_verified, total_uses, used_uses, created_at, last_login_at) "
+                f"VALUES ({esc(row['email'])}, {esc(row.get('password_hash'))}, "
+                f"{int(row['is_verified'])}, {int(row['total_uses'])}, {int(row['used_uses'])}, "
+                f"{esc(row['created_at'])}, {esc(row.get('last_login_at'))}) "
+                f"ON CONFLICT (email) DO UPDATE SET "
+                f"password_hash = EXCLUDED.password_hash, "
+                f"is_verified = EXCLUDED.is_verified, "
+                f"total_uses = EXCLUDED.total_uses, "
+                f"used_uses = EXCLUDED.used_uses, "
+                f"created_at = EXCLUDED.created_at, "
+                f"last_login_at = EXCLUDED.last_login_at;"
+            )
+
+        lines.append("")
+        lines.append(f"-- End of backup: {len(rows)} users exported.")
+
+        sql_content = "\n".join(lines)
+        filename = f"backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.sql"
+
+        return Response(
+            sql_content,
+            mimetype='text/plain',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
+
+    except Exception as e:
+        return jsonify({'error': f'Backup failed: {str(e)}'}), 500
+
+
 @app.route('/admin/export-users', methods=['GET'])
 def admin_export_users():
     if not admin_authorized():
